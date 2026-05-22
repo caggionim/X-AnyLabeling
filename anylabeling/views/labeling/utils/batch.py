@@ -7,18 +7,27 @@ from PyQt6 import QtWidgets
 from PyQt6.QtCore import Qt, QThread, QTimer, pyqtSignal
 from PyQt6.QtWidgets import (
     QVBoxLayout,
+    QHBoxLayout,
     QProgressDialog,
     QDialog,
     QLabel,
     QLineEdit,
     QDialogButtonBox,
     QApplication,
+    QTableWidget,
+    QTableWidgetItem,
+    QPushButton,
+    QComboBox,
+    QHeaderView,
+    QAbstractItemView,
+    QSpinBox,
 )
 
 from anylabeling.app_info import __version__
 from anylabeling.views.labeling.utils.theme import get_theme
 from anylabeling.services.auto_labeling import (
     _BATCH_PROCESSING_INVALID_MODELS,
+    _BATCH_PROCESSING_POINT_PROMPT_MODELS,
     _BATCH_PROCESSING_TEXT_PROMPT_MODELS,
     _BATCH_PROCESSING_VIDEO_MODELS,
     _SKIP_DET_MODELS,
@@ -137,6 +146,278 @@ class TextInputDialog(QDialog):
         return ""
 
 
+class PointInputDialog(QDialog):
+    """Dialog for entering fixed point/rectangle prompts for batch SAM segmentation."""
+
+    # Column indices
+    _COL_SHAPE = 0
+    _COL_X1 = 1
+    _COL_Y1 = 2
+    _COL_X2 = 3
+    _COL_Y2 = 4
+    _COL_TYPE = 5
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.init_ui()
+
+    def init_ui(self):
+        self.setWindowTitle(self.tr("Batch SAM - Prompts"))
+        self.setMinimumWidth(620)
+        self.setWindowFlags(
+            Qt.WindowType.Dialog | Qt.WindowType.MSWindowsFixedSizeDialogHint
+        )
+
+        layout = QVBoxLayout()
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(12)
+
+        t = get_theme()
+
+        info_label = QLabel(
+            self.tr(
+                "Enter the prompts to apply to every image.\n"
+                "Points: click a single XY location.  "
+                "Rectangles: define a bounding box with top-left (X1,Y1) and bottom-right (X2,Y2).\n"
+                "Positive prompts indicate the object; negative prompts exclude regions."
+            )
+        )
+        info_label.setWordWrap(True)
+        info_label.setStyleSheet(
+            f"font-size: 13px; color: {t['text']};"
+        )
+        layout.addWidget(info_label)
+
+        self.table = QTableWidget(0, 6)
+        self.table.setHorizontalHeaderLabels(
+            [
+                self.tr("Shape"),
+                self.tr("X1"),
+                self.tr("Y1"),
+                self.tr("X2"),
+                self.tr("Y2"),
+                self.tr("Type"),
+            ]
+        )
+        for col in range(5):
+            self.table.horizontalHeader().setSectionResizeMode(
+                col, QHeaderView.ResizeMode.ResizeToContents
+            )
+        self.table.horizontalHeader().setSectionResizeMode(
+            5, QHeaderView.ResizeMode.Stretch
+        )
+        self.table.setSelectionBehavior(
+            QAbstractItemView.SelectionBehavior.SelectRows
+        )
+        self.table.setMinimumHeight(180)
+        self.table.setStyleSheet(f"""
+            QTableWidget {{
+                background-color: {t["background_secondary"]};
+                border: 1px solid {t["border"]};
+                border-radius: 6px;
+                gridline-color: {t["border"]};
+                color: {t["text"]};
+                font-size: 13px;
+            }}
+            QHeaderView::section {{
+                background-color: {t["surface"]};
+                color: {t["text"]};
+                border: none;
+                border-bottom: 1px solid {t["border"]};
+                padding: 4px 8px;
+                font-weight: 500;
+            }}
+        """)
+        layout.addWidget(self.table)
+
+        btn_layout = QHBoxLayout()
+        self.add_point_btn = QPushButton(self.tr("Add Point"))
+        self.add_rect_btn = QPushButton(self.tr("Add Rectangle"))
+        self.remove_btn = QPushButton(self.tr("Remove Selected"))
+        self.add_point_btn.clicked.connect(lambda: self._add_row("point"))
+        self.add_rect_btn.clicked.connect(lambda: self._add_row("rectangle"))
+        self.remove_btn.clicked.connect(self._remove_row)
+        btn_style = f"""
+            QPushButton {{
+                background-color: {t["surface"]};
+                border: 1px solid {t["border"]};
+                border-radius: 6px;
+                font-size: 13px;
+                color: {t["text"]};
+                height: 32px;
+                padding: 0 12px;
+            }}
+            QPushButton:hover {{
+                background-color: {t["background_hover"]};
+            }}
+        """
+        self.add_point_btn.setStyleSheet(btn_style)
+        self.add_rect_btn.setStyleSheet(btn_style)
+        self.remove_btn.setStyleSheet(btn_style)
+        btn_layout.addWidget(self.add_point_btn)
+        btn_layout.addWidget(self.add_rect_btn)
+        btn_layout.addWidget(self.remove_btn)
+        btn_layout.addStretch()
+        layout.addLayout(btn_layout)
+
+        button_box = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok
+            | QDialogButtonBox.StandardButton.Cancel
+        )
+        button_box.accepted.connect(self.accept)
+        button_box.rejected.connect(self.reject)
+        layout.addWidget(button_box)
+
+        self.setLayout(layout)
+        self.setStyleSheet(f"""
+            QDialog {{
+                background-color: {t["background"]};
+                border-radius: 10px;
+            }}
+            QPushButton[text="OK"] {{
+                background-color: {t["primary"]};
+                color: white;
+                border: none;
+                min-width: 100px;
+                height: 36px;
+                border-radius: 8px;
+                font-size: 13px;
+                font-weight: 500;
+            }}
+            QPushButton[text="OK"]:hover {{
+                background-color: {t["primary_hover"]};
+            }}
+            QPushButton[text="Cancel"] {{
+                background-color: {t["surface"]};
+                color: {t["text"]};
+                border: 1px solid {t["border"]};
+                min-width: 100px;
+                height: 36px;
+                border-radius: 8px;
+                font-size: 13px;
+                font-weight: 500;
+            }}
+            QPushButton[text="Cancel"]:hover {{
+                background-color: {t["background_hover"]};
+            }}
+            QSpinBox {{
+                border: 1px solid {t["border"]};
+                border-radius: 4px;
+                background-color: {t["background_secondary"]};
+                color: {t["text"]};
+                font-size: 13px;
+                padding: 2px 4px;
+            }}
+            QSpinBox:disabled {{
+                background-color: {t["surface"]};
+                color: {t["border"]};
+            }}
+            QComboBox {{
+                border: 1px solid {t["border"]};
+                border-radius: 4px;
+                background-color: {t["background_secondary"]};
+                color: {t["text"]};
+                font-size: 13px;
+                padding: 2px 4px;
+            }}
+        """)
+
+        # Start with one default point row
+        self._add_row("point")
+
+    def _make_spinbox(self):
+        spin = QSpinBox()
+        spin.setRange(0, 99999)
+        spin.setValue(0)
+        return spin
+
+    def _add_row(self, shape_type):
+        row = self.table.rowCount()
+        self.table.insertRow(row)
+
+        shape_combo = QComboBox()
+        shape_combo.addItems([self.tr("Point"), self.tr("Rectangle")])
+        shape_combo.setCurrentIndex(0 if shape_type == "point" else 1)
+        self.table.setCellWidget(row, self._COL_SHAPE, shape_combo)
+
+        x1_spin = self._make_spinbox()
+        y1_spin = self._make_spinbox()
+        x2_spin = self._make_spinbox()
+        y2_spin = self._make_spinbox()
+        self.table.setCellWidget(row, self._COL_X1, x1_spin)
+        self.table.setCellWidget(row, self._COL_Y1, y1_spin)
+        self.table.setCellWidget(row, self._COL_X2, x2_spin)
+        self.table.setCellWidget(row, self._COL_Y2, y2_spin)
+
+        type_combo = QComboBox()
+        type_combo.addItems([self.tr("Positive"), self.tr("Negative")])
+        self.table.setCellWidget(row, self._COL_TYPE, type_combo)
+
+        # Wire shape change to enable/disable X2/Y2
+        shape_combo.currentIndexChanged.connect(
+            lambda idx, r=row: self._on_shape_changed(r, idx)
+        )
+        self._on_shape_changed(row, shape_combo.currentIndex())
+
+    def _on_shape_changed(self, row, index):
+        is_rect = index == 1  # 0=Point, 1=Rectangle
+        for col in (self._COL_X2, self._COL_Y2):
+            widget = self.table.cellWidget(row, col)
+            if widget:
+                widget.setEnabled(is_rect)
+
+    def _remove_row(self):
+        selected_rows = sorted(
+            set(idx.row() for idx in self.table.selectedIndexes()),
+            reverse=True,
+        )
+        if selected_rows:
+            for row in selected_rows:
+                self.table.removeRow(row)
+        elif self.table.rowCount() > 0:
+            self.table.removeRow(self.table.rowCount() - 1)
+
+    def get_marks(self):
+        marks = []
+        for row in range(self.table.rowCount()):
+            shape_w = self.table.cellWidget(row, self._COL_SHAPE)
+            x1_w = self.table.cellWidget(row, self._COL_X1)
+            y1_w = self.table.cellWidget(row, self._COL_Y1)
+            x2_w = self.table.cellWidget(row, self._COL_X2)
+            y2_w = self.table.cellWidget(row, self._COL_Y2)
+            type_w = self.table.cellWidget(row, self._COL_TYPE)
+            if not all([shape_w, x1_w, y1_w, x2_w, y2_w, type_w]):
+                continue
+            label = 1 if type_w.currentIndex() == 0 else 0
+            if shape_w.currentIndex() == 0:  # Point
+                marks.append(
+                    {
+                        "type": "point",
+                        "data": [x1_w.value(), y1_w.value()],
+                        "label": label,
+                    }
+                )
+            else:  # Rectangle
+                marks.append(
+                    {
+                        "type": "rectangle",
+                        "data": [
+                            x1_w.value(),
+                            y1_w.value(),
+                            x2_w.value(),
+                            y2_w.value(),
+                        ],
+                        "label": label,
+                    }
+                )
+        return marks
+
+    def exec_and_get_marks(self):
+        if self.exec() == QDialog.DialogCode.Accepted:
+            return self.get_marks()
+        return []
+
+
 def get_image_size(image_path):
     with Image.open(image_path) as img:
         return img.size
@@ -190,6 +471,8 @@ def finish_processing(self, progress_dialog):
     del self.run_tracker
     del self.image_index
     del self.current_index
+    if hasattr(self, "point_marks"):
+        del self.point_marks
 
     progress_dialog.close()
 
@@ -280,6 +563,7 @@ class BatchProcessingThread(QThread):
         text_prompt,
         run_tracker,
         skip_detection,
+        point_marks=None,
     ):
         super().__init__()
         self.app = app
@@ -289,6 +573,7 @@ class BatchProcessingThread(QThread):
         self.text_prompt = text_prompt
         self.run_tracker = run_tracker
         self.skip_detection = skip_detection
+        self.point_marks = point_marks or []
 
     def run(self):
         total_images = len(self.image_list)
@@ -302,6 +587,11 @@ class BatchProcessingThread(QThread):
                 self.progress_updated.emit(
                     current, f"Progress: {current}/{total_images}"
                 )
+
+                if self.point_marks:
+                    self.app.auto_labeling_widget.model_manager.set_auto_labeling_marks(
+                        self.point_marks
+                    )
 
                 if self.text_prompt:
                     result = self.app.auto_labeling_widget.model_manager.predict_shapes(
@@ -378,6 +668,7 @@ def process_next_image(self, progress_dialog, batch=True):
             self.text_prompt,
             self.run_tracker,
             skip_detection,
+            point_marks=getattr(self, "point_marks", []),
         )
 
         def _on_progress(value, label):
@@ -634,6 +925,7 @@ def run_all_images(self):
     self.image_index = self.current_index
     self.text_prompt = ""
     self.run_tracker = False
+    self.point_marks = []
 
     model_type = self.auto_labeling_widget.model_manager.loaded_model_config[
         "type"
@@ -664,6 +956,11 @@ def run_all_images(self):
             if self.text_prompt:
                 show_progress_dialog_and_process(self)
         else:
+            show_progress_dialog_and_process(self)
+    elif model_type in _BATCH_PROCESSING_POINT_PROMPT_MODELS:
+        point_input_dialog = PointInputDialog(parent=self)
+        self.point_marks = point_input_dialog.exec_and_get_marks()
+        if self.point_marks:
             show_progress_dialog_and_process(self)
     elif model_type in _BATCH_PROCESSING_TEXT_PROMPT_MODELS:
         text_input_dialog = TextInputDialog(parent=self)

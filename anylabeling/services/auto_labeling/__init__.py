@@ -374,14 +374,19 @@ _THUMBNAIL_RENDER_MODELS = {
 }
 
 
-# --- batch_processing_invalid_models ---
-_BATCH_PROCESSING_INVALID_MODELS = [
+# --- batch_processing_point_prompt_models ---
+# SAM models that support batch processing via fixed point/rect prompts
+_BATCH_PROCESSING_POINT_PROMPT_MODELS = [
     "segment_anything",
     "segment_anything_2",
     "sam_med2d",
     "sam_hq",
     "efficientvit_sam",
     "edge_sam",
+]
+
+# --- batch_processing_invalid_models ---
+_BATCH_PROCESSING_INVALID_MODELS = [
     "open_vision",
     "geco",
 ]
